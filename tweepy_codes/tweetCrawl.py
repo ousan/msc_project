@@ -1,10 +1,12 @@
 import tweepy
 import time
+import threading
 from tweepy.streaming import StreamListener
 from tweepy import OAuthHandler
 from tweepy import Stream
 import json #data
-import datetime
+
+from urllib3.exceptions import ProtocolError
 
 #Storage Path
 trend_topic_file_path = "/home/oguzhaner/Desktop/ttFile" 
@@ -22,65 +24,122 @@ auth.set_access_token(access_token, access_token_secret)
 api = tweepy.API(auth)
 
 trendTopicFile = open(trend_topic_file_path, "a")
-tweetFile = open(tweet_file_path, "a")
+tweetFile = open(tweet_file_path,"a")
 
 TURKEY_WOE_ID = 23424969
-def getTrendTopic():
+
+class crawlTime():
+
+    """ The run() method will be started and it will run in the background
+    until the application exits.
+    """
+
+    def __init__(self, interval=10*60*60):
+        """ Constructor
+        :type interval: int
+        :param interval: Check interval, in seconds
+        """
+        self.interval = interval
+        self.timeUp=0
+        thread = threading.Thread(target=self.run, args=())
+        thread.daemon = True                            # Daemonize thread
+        thread.start()                                  # Start the execution
+
+    def run(self):
+        """ Method that runs forever """
+        while True:
+            time.sleep(self.interval)
+            self.timeUp=1
+
+    def is_time_up(self):
+        return self.timeUp
+
+def get_trend_topic():
+    counter = 0
     trend_topics = []
     turkey_trends = api.trends_place(TURKEY_WOE_ID)
     trends = json.loads(json.dumps(turkey_trends, indent=1))
     for trend in trends[0]["trends"]:
+        counter = counter + 1 
         trend_topics.append(str(trend["name"]))
         trendTopicFile.write("%s\n" % trend["name"])
-        print(trend["name"])
+        if counter >= 10:
+            break
+        #print(trend["name"])
     return trend_topics
+
 
 #This is a basic listener that just prints received tweets to stdout.
 class StdOutListener(StreamListener):
+    def __init__(self):
+        self.prevTime = 0
 
     def on_data(self, data):
+        #start_time = time.time()
+        #elapsed_time = time.time() - self.prevTime
+        #self.prevTime = time.time()
+        #print(elapsed_time)
         try:
-            jsonData = json.loads(data.strip())
-            tweetID = jsonData.get("id_str")
-            tweetData = api.get_status(tweetID)
+            tweet = json.loads(data.strip())
+            if 'text' in tweet and 'lang' in tweet and 'retweeted' in tweet: 
+                tweetData = tweet["text"]
+                tweetLang = tweet["lang"]
+                tweetRT = tweet["retweeted"]
 
-            #check if tweet is valid (not a retweet)
-            self.check_valid_tweet(tweetData)
+                ###check if tweet is valid (not a retweet)
+                if tweetRT == True:
+                    pass
+                if tweetLang != "tr":
+                    pass
+                else:
+                    #print("@" + username + ":" + tweet)
+                    tweetFile.write("@ : " + tweetData + "\n")
 
-        except (tweepy.error.RateLimitError):
-            print ("This is the error I'm receiving")
-            time.sleep(60*15)
+        except tweepy.TweepError as e:
+            print(e.reason)
+            #ime.sleep(5)
+
+        #elapsed_time = time.time() - start_time
+        #print("elapsed_time")
+        #print(elapsed_time)
+
+
 
     def on_error(self, status):
         #error number 503, servers down
         print ('Error #:', status)
 
-    def check_valid_tweet(self, tweetData):
-        #Check if data is the original tweet or a retweet
-        if ( (hasattr(tweetData, 'retweeted_status')) ):
-            pass
-        else:
-            tweet = tweetData.text
-            username = tweetData.author.screen_name
-            followers = tweetData.author.followers_count
-            with open(tweet_file_path,'a') as tf:
-                tf.write("@" + username + ": " + tweet + "\n")
-            print("@" + username + ": " + tweet + "")
-            #print ("followers = " + str(followers))
-    
+    def on_exception(self,exception):
+
+        print("EXCEPTION OCCURED!!!!\n")
+        print(exception)
+        return
+
 
 if __name__ == '__main__':
    #This handles Twitter authentification and the connection to Twitter Streaming API
+    
     listener = StdOutListener()
     twitterStream = Stream(auth, listener)
-    keywords = getTrendTopic()
-    print(type(keywords))
-    while True:
+    crawl_time = crawlTime()
+    while crawl_time.is_time_up() != 1:
         if twitterStream.running is True:
             twitterStream.disconnect() 
-        keywords=getTrendTopic() # return string of keywords seaprated by comma
+            time.sleep(2)
+        keywords=get_trend_topic() # return string of keywords seaprated by comma
         if keywords=='':
             print ('no keywords to listen to')
         else:
-            twitterStream.filter(languages=["tr"],track=keywords,is_async=True) # Open the stream to work on asynchronously on a different thread
-        time.sleep(3600) # sleep for one hour
+            try:
+                twitterStream.filter(track=keywords,is_async=True)
+            except http.client.IncompleteRead as e:
+                print('client incomplete read error')
+                twitterStream.disconnect()
+        time.sleep(3600) # sleep for one hour and update keywords
+    if twitterStream.running is True:
+        twitterStream.disconnect()
+        time.sleep(2)
+        print("time is up")
+        trendTopicFile.close()
+        tweetFile.close()
+ 
