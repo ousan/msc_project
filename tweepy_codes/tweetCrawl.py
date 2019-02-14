@@ -5,7 +5,7 @@ from tweepy.streaming import StreamListener
 from tweepy import OAuthHandler
 from tweepy import Stream
 import json #data
-
+import re
 from urllib3.exceptions import ProtocolError
 
 #Storage Path
@@ -23,38 +23,11 @@ auth.set_access_token(access_token, access_token_secret)
 
 api = tweepy.API(auth)
 
-trendTopicFile = open(trend_topic_file_path, "a")
 tweetFile = open(tweet_file_path,"a")
-
 TURKEY_WOE_ID = 23424969
 
-class crawlTime():
-
-    """ The run() method will be started and it will run in the background
-    until the application exits.
-    """
-
-    def __init__(self, interval=10*60*60):
-        """ Constructor
-        :type interval: int
-        :param interval: Check interval, in seconds
-        """
-        self.interval = interval
-        self.timeUp=0
-        thread = threading.Thread(target=self.run, args=())
-        thread.daemon = True                            # Daemonize thread
-        thread.start()                                  # Start the execution
-
-    def run(self):
-        """ Method that runs forever """
-        while True:
-            time.sleep(self.interval)
-            self.timeUp=1
-
-    def is_time_up(self):
-        return self.timeUp
-
 def get_trend_topic():
+    trendTopicFile = open(trend_topic_file_path, "a")
     counter = 0
     trend_topics = []
     turkey_trends = api.trends_place(TURKEY_WOE_ID)
@@ -66,8 +39,9 @@ def get_trend_topic():
         if counter >= 10:
             break
         #print(trend["name"])
+    trendTopicFile.write("\n")    
+    trendTopicFile.close()
     return trend_topics
-
 
 #This is a basic listener that just prints received tweets to stdout.
 class StdOutListener(StreamListener):
@@ -86,14 +60,13 @@ class StdOutListener(StreamListener):
                 tweetLang = tweet["lang"]
                 tweetRT = tweet["retweeted"]
 
-                ###check if tweet is valid (not a retweet)
-                if tweetRT == True:
-                    pass
-                if tweetLang != "tr":
-                    pass
+                if tweetRT == True: #check if tweet is valid (not a retweet)
+                    return
+                if tweetLang != "tr": #check if tweet language is valid
+                    return
                 else:
-                    #print("@" + username + ":" + tweet)
-                    tweetFile.write("@ : " + tweetData + "\n")
+                    tweetData=tweetData.replace("\n"," ")
+                    tweetFile.write(tweetData + "\n")
 
         except tweepy.TweepError as e:
             print(e.reason)
@@ -103,8 +76,6 @@ class StdOutListener(StreamListener):
         #print("elapsed_time")
         #print(elapsed_time)
 
-
-
     def on_error(self, status):
         #error number 503, servers down
         print ('Error #:', status)
@@ -113,33 +84,32 @@ class StdOutListener(StreamListener):
 
         print("EXCEPTION OCCURED!!!!\n")
         print(exception)
-        return
+        
 
 
 if __name__ == '__main__':
    #This handles Twitter authentification and the connection to Twitter Streaming API
-    
     listener = StdOutListener()
     twitterStream = Stream(auth, listener)
-    crawl_time = crawlTime()
-    while crawl_time.is_time_up() != 1:
+    
+    try:
+        while True:
+
+            if twitterStream.running is True:
+                print("Stream is closing to renew ttList")
+                twitterStream.disconnect() 
+                time.sleep(2)
+            
+            keywords=get_trend_topic() # return string of keywords seaprated by comma        
+            if keywords=='':
+                print ('no keywords to listen to')
+            else:
+                twitterStream.filter(track=keywords,is_async=True)
+            time.sleep(60*60) # sleep for one hour and update keywords
+
+    except KeyboardInterrupt:
+        print("Keyboard Interrupt")
+        tweetFile.close()
         if twitterStream.running is True:
             twitterStream.disconnect() 
-            time.sleep(2)
-        keywords=get_trend_topic() # return string of keywords seaprated by comma
-        if keywords=='':
-            print ('no keywords to listen to')
-        else:
-            try:
-                twitterStream.filter(track=keywords,is_async=True)
-            except http.client.IncompleteRead as e:
-                print('client incomplete read error')
-                twitterStream.disconnect()
-        time.sleep(3600) # sleep for one hour and update keywords
-    if twitterStream.running is True:
-        twitterStream.disconnect()
-        time.sleep(2)
-        print("time is up")
-        trendTopicFile.close()
-        tweetFile.close()
- 
+        
