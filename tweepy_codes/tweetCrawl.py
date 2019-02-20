@@ -7,7 +7,9 @@ from tweepy import Stream
 import json #data
 import re
 from urllib3.exceptions import ProtocolError
+import datetime
 
+################################ Variables ####################################
 #Storage Path
 trend_topic_file_path = "/home/oguzhaner/Desktop/ttFile" 
 tweet_file_path = "/home/oguzhaner/Desktop/tweetFile" 
@@ -17,14 +19,24 @@ consumer_key = ""
 consumer_secret = ""
 access_token = ""
 access_token_secret = ""
- 
+
+#Trend Topic Country
+TURKEY_WOE_ID = 23424969
+
+#TT Update Time
+hour=1
+minute=0
+second=0
+
+#Config
+timeStampEnabled=True
+usernameEnabled=True
+################################################################################
 auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
 auth.set_access_token(access_token, access_token_secret)
-
 api = tweepy.API(auth)
 
 tweetFile = open(tweet_file_path,"a")
-TURKEY_WOE_ID = 23424969
 
 def get_trend_topic():
     trendTopicFile = open(trend_topic_file_path, "a")
@@ -55,37 +67,43 @@ class StdOutListener(StreamListener):
         #print(elapsed_time)
         try:
             tweet = json.loads(data.strip())
-            if 'text' in tweet and 'lang' in tweet and 'retweeted' in tweet: 
+            #print (tweet)
+            if 'text' in tweet and 'lang' in tweet and 'retweeted' in tweet and 'user' in tweet: 
                 tweetData = tweet["text"]
                 tweetLang = tweet["lang"]
-                tweetRT = tweet["retweeted"]
-
-                if tweetRT == True: #check if tweet is valid (not a retweet)
+                tweetExtension ="" # this is used to add username and timestamp if it is wanted
+                
+                if tweet['retweeted'] or "RT @" in tweet['text']: #including 'unofficial' re-tweets, you should check the string for the substring 'RT @'
                     return
                 if tweetLang != "tr": #check if tweet language is valid
                     return
-                else:
-                    tweetData=tweetData.replace("\n"," ")
-                    tweetFile.write(tweetData + "\n")
+
+                if timeStampEnabled == True:
+                    tweetExtension = datetime.datetime.now().strftime("%d. %B %Y %I:%M%p ") 
+                if usernameEnabled == True:
+                    tweetExtension = tweetExtension + "@" + tweet["user"]["screen_name"]
+                if usernameEnabled == True or timeStampEnabled == True:
+                    tweetExtension = tweetExtension + " => "
+
+                tweetData = tweetExtension + tweetData
+                tweetData=tweetData.replace("\n"," ")
+                #print(tweetData)
+                tweetFile.write(tweetData + "\n")
 
         except tweepy.TweepError as e:
             print(e.reason)
-            #ime.sleep(5)
 
         #elapsed_time = time.time() - start_time
         #print("elapsed_time")
         #print(elapsed_time)
 
     def on_error(self, status):
-        #error number 503, servers down
         print ('Error #:', status)
 
     def on_exception(self,exception):
-
         print("EXCEPTION OCCURED!!!!\n")
         print(exception)
         
-
 
 if __name__ == '__main__':
    #This handles Twitter authentification and the connection to Twitter Streaming API
@@ -100,12 +118,12 @@ if __name__ == '__main__':
                 twitterStream.disconnect() 
                 time.sleep(2)
             
-            keywords=get_trend_topic() # return string of keywords seaprated by comma        
+            keywords=get_trend_topic() # return string of keywords seperated by comma        
             if keywords=='':
                 print ('no keywords to listen to')
             else:
                 twitterStream.filter(track=keywords,is_async=True)
-            time.sleep(60*60) # sleep for one hour and update keywords
+            time.sleep((hour*3600) + (minute*60) + (second))
 
     except KeyboardInterrupt:
         print("Keyboard Interrupt")
