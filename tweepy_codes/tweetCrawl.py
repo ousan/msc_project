@@ -8,11 +8,17 @@ import json #data
 import re
 from urllib3.exceptions import ProtocolError
 import datetime
+import sys
+
+############################# SysWide Config ##################################
+reload(sys)
+sys.setdefaultencoding('utf8')
 
 ################################ Variables ####################################
 #Storage Path
-trend_topic_file_path = "/home/oguzhaner/Desktop/ttFile" 
-tweet_file_path = "/home/oguzhaner/Desktop/tweetFile" 
+output_dir = "/home/oguzhan/Desktop/"
+tweet_dir = output_dir + "tweetDir/"
+trend_topic_file_path = output_dir + "ttFile" 
 
 #Authentication
 consumer_key = ""
@@ -24,19 +30,20 @@ access_token_secret = ""
 TURKEY_WOE_ID = 23424969
 
 #TT Update Time
-hour=1
-minute=0
+hour=0
+minute=10
 second=0
 
 #Config
 timeStampEnabled=True
 usernameEnabled=True
+tweetCounter=0
+tweetCountForDisplay=1000
 ################################################################################
+
 auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
 auth.set_access_token(access_token, access_token_secret)
 api = tweepy.API(auth)
-
-tweetFile = open(tweet_file_path,"a")
 
 def get_trend_topic():
     trendTopicFile = open(trend_topic_file_path, "a")
@@ -44,6 +51,8 @@ def get_trend_topic():
     trend_topics = []
     turkey_trends = api.trends_place(TURKEY_WOE_ID)
     trends = json.loads(json.dumps(turkey_trends, indent=1))
+    trendTopicFile.write(datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    trendTopicFile.write("\n")
     for trend in trends[0]["trends"]:
         counter = counter + 1 
         trend_topics.append(str(trend["name"]))
@@ -55,23 +64,28 @@ def get_trend_topic():
     trendTopicFile.close()
     return trend_topics
 
+def get_tweet_file_name():
+    return datetime.datetime.today().strftime('%Y-%m-%d')
+
 #This is a basic listener that just prints received tweets to stdout.
 class StdOutListener(StreamListener):
     def __init__(self):
         self.prevTime = 0
 
     def on_data(self, data):
-        #start_time = time.time()
-        #elapsed_time = time.time() - self.prevTime
-        #self.prevTime = time.time()
-        #print(elapsed_time)
+
         try:
             tweet = json.loads(data.strip())
-            #print (tweet)
-            if 'text' in tweet and 'lang' in tweet and 'retweeted' in tweet and 'user' in tweet: 
+            #print(tweet)
+            if 'text' in tweet and 'lang' in tweet and 'retweeted' in tweet and 'user' in tweet and 'id_str' in tweet: 
                 tweetData = tweet["text"]
                 tweetLang = tweet["lang"]
-                tweetExtension ="" # this is used to add username and timestamp if it is wanted
+                tweetId   = tweet["id_str"]
+                if 'extended_tweet' in tweet :
+                    tweetData = tweet['extended_tweet']['full_text']
+
+
+                tweetExtension ="id:" + tweetId + " " # this is used to add username and timestamp if it is wanted 
                 
                 if tweet['retweeted'] or "RT @" in tweet['text']: #including 'unofficial' re-tweets, you should check the string for the substring 'RT @'
                     return
@@ -79,7 +93,7 @@ class StdOutListener(StreamListener):
                     return
 
                 if timeStampEnabled == True:
-                    tweetExtension = datetime.datetime.now().strftime("%d. %B %Y %I:%M%p ") 
+                    tweetExtension = tweetExtension + datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
                 if usernameEnabled == True:
                     tweetExtension = tweetExtension + "@" + tweet["user"]["screen_name"]
                 if usernameEnabled == True or timeStampEnabled == True:
@@ -88,14 +102,15 @@ class StdOutListener(StreamListener):
                 tweetData = tweetExtension + tweetData
                 tweetData=tweetData.replace("\n"," ")
                 #print(tweetData)
+                global tweetCounter
+                tweetCounter =  tweetCounter + 1
+                if tweetCounter % tweetCountForDisplay == 0:
+                   print()
+                   print("%s Tweet Counter = %s" % (datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S"), tweetCounter))
                 tweetFile.write(tweetData + "\n")
 
         except tweepy.TweepError as e:
             print(e.reason)
-
-        #elapsed_time = time.time() - start_time
-        #print("elapsed_time")
-        #print(elapsed_time)
 
     def on_error(self, status):
         print ('Error #:', status)
@@ -112,7 +127,9 @@ if __name__ == '__main__':
     
     try:
         while True:
-
+            tweet_file_name = get_tweet_file_name()
+            tweet_file_path = tweet_dir + tweet_file_name
+            tweetFile = open(tweet_file_path,"a")
             if twitterStream.running is True:
                 print("Stream is closing to renew ttList")
                 twitterStream.disconnect() 
